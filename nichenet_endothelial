@@ -1,0 +1,122 @@
+---
+title: "nichenet_endothelail"
+output: html_document
+date: "2024-03-25"
+---
+
+```{r}
+library(Seurat)
+library(nichenetr)
+library(devtools)
+library(cellranger)
+library(dplyr)
+library(ggplot2)
+library(sctransform)
+library(cowplot)
+library(harmony)
+library(tibble)
+library(readxl)
+library(Libra)
+library(EnhancedVolcano)
+library(BiocManager)
+library(SeuratWrappers)
+library(parallel)
+library(SeuratDisk)
+library(SeuratData)
+library(monocle3)
+library(patchwork)
+library(ComplexHeatmap)
+```
+
+```{r}
+library(Seurat)
+devtools::install_github("saeyslab/nichenetr")
+```
+
+```{r}
+library(nichenetr)
+library(tidyverse)
+
+#LS44_Feb24_subset <- UpdateSeuratObject(LS44_Feb24_subset)
+
+```
+
+
+```{r}
+options(timeout=400)
+lr_network = readRDS(url("https://zenodo.org/record/3260758/files/lr_network.rds"))
+ligand_target_matrix = readRDS(url("https://zenodo.org/record/3260758/files/ligand_target_matrix.rds"))
+weighted_networks = readRDS(url("https://zenodo.org/record/3260758/files/weighted_networks.rds"))
+ligand_tf_matrix = readRDS(url("https://zenodo.org/record/3260758/files/ligand_tf_matrix.rds"))
+```
+
+```{r}
+lr_network <- lr_network %>% distinct(from, to)
+
+```
+
+reciever
+```{r}
+receiver = c("Suprabasal Keratinocytes","Fibroblasts","Keratinocytes","Basal Keratinocytes","Granular Keratinocytes","Smooth Muscle Cells",        "Endothelial Cells","T Cells","Mast Cells", "Monocytes/Macrophages","Follicular Keratinocytes","Melanocytes/Neuronal Cells", "B Cells","Eccrine Glands")
+receiver = c("Suprabasal Keratinocytes","Fibroblasts","Keratinocytes","Basal Keratinocytes","Granular Keratinocytes","Smooth Muscle Cells","Endothelial Cells","T Cells", "Monocytes/Macrophages","Follicular Keratinocytes", "B Cells")
+expressed_genes_receiver <- get_expressed_genes(receiver, LS44_Feb24_subset, pct = 0.05)
+```
+
+
+Get a list of all receptors available in the ligand-receptor network, and define expressed receptors as genes that are in the ligand-receptor network and expressed in the receiver. Then, define the potential ligands as all ligands whose cognate receptors are expressed.
+```{r}
+all_receptors <- unique(lr_network$to)  
+expressed_receptors <- intersect(all_receptors, expressed_genes_receiver)
+
+potential_ligands <- lr_network %>% filter(to %in% expressed_receptors) %>% pull(from) %>% unique()
+```
+
+sender
+```{r}
+#unique(LS44_Feb24_subset@meta.data$celltype1)
+sender_celltypes <-"Endothelial Cells"
+
+# Use lapply to get the expressed genes of every sender cell type separately here
+list_expressed_genes_sender <- sender_celltypes %>% unique() %>% lapply(get_expressed_genes, LS44_Feb24_subset, 0.05)
+expressed_genes_sender <- list_expressed_genes_sender %>% unlist() %>% unique()
+
+potential_ligands_focused <- intersect(potential_ligands, expressed_genes_sender) 
+```
+
+define gene set of interest 
+```{r}
+condition_oi <-  "LS"
+condition_reference <- "Healthy"
+
+seurat_obj_receiver <- subset(LS44_Feb24_subset, idents = receiver)
+
+DE_table_receiver <-  FindMarkers(object = seurat_obj_receiver,
+                                  ident.1 = condition_oi, ident.2 = condition_reference,
+                                  group.by = "health",
+                                  min.pct = 0.05) %>% rownames_to_column("gene")
+
+geneset_oi <- DE_table_receiver %>% filter(p_val_adj <= 0.05 & abs(avg_log2FC) >= 0.25) %>% pull(gene)
+geneset_oi <- geneset_oi %>% .[. %in% rownames(ligand_target_matrix)]
+```
+
+background expressed genes
+```{r}
+background_expressed_genes <- expressed_genes_receiver %>% .[. %in% rownames(ligand_target_matrix)]
+
+length(background_expressed_genes)
+## [1] 5237
+length(geneset_oi)
+## [1] 2389
+```
+
+ligand activity analysis
+```{r}
+ligand_activities <- predict_ligand_activities(geneset = geneset_oi,
+                                               background_expressed_genes = background_expressed_genes,
+                                               ligand_target_matrix = ligand_target_matrix,
+                                               potential_ligands = potential_ligands)
+
+#ligand_activities <- ligand_activities %>% arrange(-aupr_corrected) %>% mutate(desc(aupr_corrected))
+ligand_activities <- ligand_activities[order(-ligand_activities$aupr_corrected),]
+ligand_activities
+```
