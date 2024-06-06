@@ -1,0 +1,347 @@
+---
+title: "endothelial subset and nichenet"
+output: html_document
+date: "2024-03-28"
+---
+```{r}
+library(Seurat)
+library(nichenetr)
+library(devtools)
+library(cellranger)
+library(dplyr)
+library(ggplot2)
+library(sctransform)
+library(cowplot)
+library(harmony)
+library(tibble)
+library(readxl)
+library(Libra)
+library(EnhancedVolcano)
+library(BiocManager)
+library(SeuratWrappers)
+library(parallel)
+library(SeuratDisk)
+library(SeuratData)
+library(monocle3)
+library(patchwork)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(tidyverse)
+library(dittoSeq)
+
+```
+```{r}
+endothelial_Mar24 <- Updateendothelial_Mar24ect(endothelial_Mar24)
+
+DimPlot(LS44_Feb24_subset, label = T)
+endothelial_Mar24@meta.data$library_id<- factor(x = endothelial_Mar24@meta.data$library_id, levels = c("SC124", "SC50", "SC68", "SC125", "SC1", "SC4", "SC18", "SC33", "SC392", "SC386", "SC407","SC32", "SC296", "SC297", "HSK053", "HSK054", "PHC003",  "SC275", "SC445", "SC446", "SC260", "SC222", "SC266", "SC267", "SC272", "HJ809", "HJ867", "SC389", "SC408", "SC409",     "SC126", "SC443", "SC198","SC246", "SC259", "SC144", "SC300", "SC388", "SC391", "SC424", "SC442", "SC457", "SC361", "SC455" )) # change the order of the factor levels
+
+sample_h_info<- unique(data_frame(endothelial_Mar24@meta.data$library_id, endothelial_Mar24@meta.data$health, endothelial_Mar24@meta.data$onset))
+sample_h_info
+#sample_h_info
+#order info: H adult, H ped, LS adult, LS ped
+#H adult (8): "SC124", "SC50", "SC68", "SC125", "SC1", "SC4", "SC18", "SC33"
+#H ped (9): "SC32", "SC296", "SC297", "HSK053", "HSK054", "PHC003","SC392", "SC386", "SC407"
+#LS adult (13):  "SC275", "SC445", "SC446", "SC260", "SC222", "SC266", "SC267", "SC272", "HJ809", "HJ867", "SC389", "SC408", "SC409"
+#LS ped (14): "SC126", "SC443", "SC198","SC246", "SC259", "SC144", "SC300", "SC388", "SC391", "SC424", "SC442", "SC457","SC455"
+samples_ordered<- c("SC124", "SC50", "SC68", "SC125", "SC1", "SC4", "SC18", "SC33", "SC392", "SC386", "SC407","SC32", "SC296", "SC297", "HSK053", "HSK054", "PHC003",  "SC275", "SC445", "SC446", "SC260", "SC222", "SC266", "SC267", "SC272", "HJ809", "HJ867", "SC389", "SC408", "SC409",     "SC126", "SC443", "SC198","SC246", "SC259", "SC144", "SC300", "SC388", "SC391", "SC424", "SC442", "SC457","SC361" ,"SC455" )
+```
+
+```{r fig.height=6, fig.width=10}
+FeaturePlot(endothelial_Mar24, features = c("IL33","IL6","NOTCH4","NOTCH1","JAG1","JAG2", "IL7"))
+
+ FeaturePlot(endothelial_Mar24,split.by = "health", features = c("NOTCH4","NOTCH1","JAG1","JAG2"))
+DotPlot(endothelial_Mar24, features = c("NOTCH4","NOTCH1","JAG1","JAG2") , split.by = "health")
+install.packages("genemodulepheatmap")
+library(pheatmap)
+DoHeatmap(endothelial_Mar24, features = endo.marker.genes)
+endo.marker.genes<- c("SEMA3G", "GJA4", "HEY1", "FBLN5", "ACKR1", "SOD2", "CLU", "VWF", "CCL14","CD36", "CA4", "FABP4", "SFN","DMKM","KLF5","PROX","LYVE", "SOX17", "PLAUR", "KLHL21", "GJA1", "LITAF", "ICAM1","EFNB2","RGS5")
+FeaturePlot(endothelial_Mar24, features = "IL1R1", split.by = "health")
+VlnPlot(endothelial_Mar24, group.by = "library_id", features = "IL33")+ FontSize(x.text=6)
+DotPlot(endothelial_Mar24, group.by = "library_id", features = c("IL33", "IL1RL1", "IL1R4"))
+DoHeatmap()
+FeaturePlot(LS44_Feb24_subset, features = c("JAG1" , "JAG2", "NOTCH1", "NOTCH4"))
+FeaturePlot(LS44_Feb24_subset, features = "NOTCH4")
+unique(LS44_Feb24_subset@meta.data$library_id)
+```
+
+
+
+```{r}
+options(timeout=400)
+lr_network = readRDS(url("https://zenodo.org/record/3260758/files/lr_network.rds"))
+ligand_target_matrix = readRDS(url("https://zenodo.org/record/3260758/files/ligand_target_matrix.rds"))
+weighted_networks = readRDS(url("https://zenodo.org/record/3260758/files/weighted_networks.rds"))
+ligand_tf_matrix = readRDS(url("https://zenodo.org/record/3260758/files/ligand_tf_matrix.rds"))
+```
+
+```{r}
+lr_network = lr_network %>% distinct(from, to)
+head(lr_network)
+weighted_networks_lr = weighted_networks$lr_sig %>% inner_join(lr_network, by = c("from","to"))
+head(weighted_networks$lr_sig)
+```
+
+Capillary EC            Post-capillary venules  Venous EC               Pre-venular Capillaries
+[5] Pericytes/EC            Lymphatic EC            Proliferating EC        Arterial EC     
+
+```{r}
+## receiver
+unique(Idents(endothelial_Mar24))
+receiver = c("Suprabasal Keratinocytes",   "Fibroblasts", "Keratinocytes","Basal Keratinocytes",  "Granular Keratinocytes",    
+ "Smooth Muscle Cells",   "Endothelial Cells","T Cells" ,  "Mast Cells","Monocytes/Macrophages","Follicular Keratinocytes",   "Melanocytes/Neuronal Cells", "B Cells", "Eccrine Glands" )
+expressed_genes_receiver = get_expressed_genes(receiver, LS44_Feb24_subset, pct = 0.10)
+
+background_expressed_genes = expressed_genes_receiver %>% .[. %in% rownames(ligand_target_matrix)]
+FeaturePlot(endothelial_Mar24, features="IL6", split.by = "health")
+## sender
+sender_celltypes ="Endothelial Cells"
+sender_celltypes=c("Capillary EC","Post-capillary venules",  "Venous EC","Pre-venular Capillaries","Pericytes/EC","Lymphatic EC",            "Proliferating EC","Arterial EC")
+list_expressed_genes_sender = sender_celltypes %>% unique() %>% lapply(get_expressed_genes, LS44_Feb24_subset, 0.10) # lapply to get the expressed genes of every sender cell type separately here
+expressed_genes_sender = list_expressed_genes_sender %>% unlist() %>% unique()
+```
+define gene set of interest
+```{r}
+seurat_obj_receiver= subset(LS44_Feb24_subset, idents = receiver)
+seurat_obj_receiver = SetIdent(LS44_Feb24_subset, value = seurat_obj_receiver[["health", drop=TRUE]])
+
+condition_oi = "LS"
+condition_reference = "Healthy" 
+  
+DE_table_receiver = FindMarkers(object = seurat_obj_receiver, ident.1 = condition_oi, ident.2 = condition_reference, min.pct = 0.10) %>% rownames_to_column("gene")
+
+geneset_oi = DE_table_receiver %>% filter(p_val_adj <= 0.05 & abs(avg_log2FC) >= 0.25) %>% pull(gene)
+geneset_oi = geneset_oi %>% .[. %in% rownames(ligand_target_matrix)]
+```
+
+define ligands
+```{r}
+ligands = lr_network %>% pull(from) %>% unique()
+receptors = lr_network %>% pull(to) %>% unique()
+
+expressed_ligands = intersect(ligands,expressed_genes_sender)
+expressed_receptors = intersect(receptors,expressed_genes_receiver)
+
+potential_ligands = lr_network %>% filter(from %in% expressed_ligands & to %in% expressed_receptors) %>% pull(from) %>% unique()
+
+```
+ligand activity analysis
+```{r}
+ligand_activities = predict_ligand_activities(geneset = geneset_oi, background_expressed_genes = background_expressed_genes, ligand_target_matrix = ligand_target_matrix, potential_ligands = potential_ligands)
+
+ligand_activities = ligand_activities %>% arrange(-aupr_corrected) %>% mutate(rank = rank(desc(aupr_corrected)))
+ligand_activities
+best_upstream_ligands = ligand_activities %>% top_n(30, aupr_corrected) %>% arrange(-aupr_corrected) %>% pull(test_ligand) %>% unique()
+
+DotPlot(LS44_Feb24_subset, features = best_upstream_ligands %>% rev(), cols = "RdYlBu") + RotatedAxis()+FontSize(6)
+```
+
+```{r fig.width=10}
+active_ligand_target_links_df = best_upstream_ligands %>% lapply(get_weighted_ligand_target_links,geneset = geneset_oi, ligand_target_matrix = ligand_target_matrix, n = 200) %>% bind_rows() %>% drop_na()
+library(tidyverse)
+active_ligand_target_links = prepare_ligand_target_visualization(ligand_target_df = active_ligand_target_links_df, ligand_target_matrix = ligand_target_matrix, cutoff = 0.33)
+
+order_ligands = intersect(best_upstream_ligands, colnames(active_ligand_target_links)) %>% rev() %>% make.names()
+order_targets = active_ligand_target_links_df$target %>% unique() %>% intersect(rownames(active_ligand_target_links)) %>% make.names()
+rownames(active_ligand_target_links) = rownames(active_ligand_target_links) %>% make.names() # make.names() for heatmap visualization of genes like H2-T23
+colnames(active_ligand_target_links) = colnames(active_ligand_target_links) %>% make.names() # make.names() for heatmap visualization of genes like H2-T23
+
+vis_ligand_target = active_ligand_target_links[order_targets,order_ligands] %>% t()
+p_ligand_target_network = vis_ligand_target %>% make_heatmap_ggplot("Prioritized ligands","Predicted target genes", color = "purple",legend_position = "top", x_axis_position = "top",legend_title = "Regulatory potential")  + theme(axis.text.x = element_text(face = "italic")) + scale_fill_gradient2(low = "whitesmoke",  high = "purple", breaks = c(0,0.0045,0.0090))
+p_ligand_target_network
+```
+receptors of top ranked ligands
+```{r}
+lr_network_top = lr_network %>% filter(from %in% best_upstream_ligands & to %in% expressed_receptors) %>% distinct(from,to)
+best_upstream_receptors = lr_network_top %>% pull(to) %>% unique()
+
+lr_network_top_df_large = weighted_networks_lr %>% filter(from %in% best_upstream_ligands & to %in% best_upstream_receptors)
+
+lr_network_top_df = lr_network_top_df_large %>% spread("from","weight",fill = 0)
+lr_network_top_matrix = lr_network_top_df %>% select(-to) %>% as.matrix() %>% magrittr::set_rownames(lr_network_top_df$to)
+
+dist_receptors = dist(lr_network_top_matrix, method = "binary")
+hclust_receptors = hclust(dist_receptors, method = "ward.D2")
+order_receptors = hclust_receptors$labels[hclust_receptors$order]
+    
+dist_ligands = dist(lr_network_top_matrix %>% t(), method = "binary")
+hclust_ligands = hclust(dist_ligands, method = "ward.D2")
+order_ligands_receptor = hclust_ligands$labels[hclust_ligands$order]
+
+order_receptors = order_receptors %>% intersect(rownames(lr_network_top_matrix))
+order_ligands_receptor = order_ligands_receptor %>% intersect(colnames(lr_network_top_matrix))
+
+vis_ligand_receptor_network = lr_network_top_matrix[order_receptors, order_ligands_receptor]
+rownames(vis_ligand_receptor_network) = order_receptors %>% make.names()
+colnames(vis_ligand_receptor_network) = order_ligands_receptor %>% make.names()
+p_ligand_receptor_network = vis_ligand_receptor_network %>% t() %>% make_heatmap_ggplot("Ligands","Receptors", color = "mediumvioletred", x_axis_position = "top",legend_title = "Prior interaction potential")
+p_ligand_receptor_network
+```
+```{r}
+# DE analysis for each sender cell type
+# this uses a new nichenetr function - reinstall nichenetr if necessary!
+DE_table_all = Idents(endothelial_Mar24) %>% levels() %>% intersect(sender_celltypes) %>% lapply(get_lfc_celltype, seurat_obj = endothelial_Mar24, condition_colname = "health", condition_oi = condition_oi, condition_reference = condition_reference, expression_pct = 0.10, celltype_col = NULL) %>% reduce(full_join) # use this if cell type labels are the identities of your Seurat object -- if not: indicate the celltype_col properly
+DE_table_all[is.na(DE_table_all)] = 0
+
+# Combine ligand activities with DE information
+ligand_activities_de = ligand_activities %>% select(test_ligand, pearson) %>% rename(ligand = test_ligand) %>% left_join(DE_table_all %>% rename(ligand = gene))
+ligand_activities_de[is.na(ligand_activities_de)] = 0
+
+# make LFC heatmap
+lfc_matrix = ligand_activities_de  %>% select(-ligand, -pearson) %>% as.matrix() %>% magrittr::set_rownames(ligand_activities_de$ligand)
+rownames(lfc_matrix) = rownames(lfc_matrix) %>% make.names()
+
+order_ligands = order_ligands[order_ligands %in% rownames(lfc_matrix)]
+vis_ligand_lfc = lfc_matrix[order_ligands,]
+
+colnames(vis_ligand_lfc) = vis_ligand_lfc %>% colnames() %>% make.names()
+
+p_ligand_lfc = vis_ligand_lfc %>% make_threecolor_heatmap_ggplot("Prioritized ligands","LFC in Sender", low_color = "midnightblue",mid_color = "white", mid = median(vis_ligand_lfc), high_color = "red",legend_position = "top", x_axis_position = "top", legend_title = "LFC") + theme(axis.text.y = element_text(face = "italic"))
+p_ligand_lfc
+```
+
+
+```{r fig.width=10}
+#Annotation
+Idents(LS44_Feb24_subset) <- LS44_Feb24_subset@meta.data$RNA_snn_res.0.9
+LS44_Feb24_subset@meta.data$library_id<- factor(x = LS44_Feb24_subset@meta.data$library_id, levels = c("SC18", "SC33", "HJ867", "SC390", "SC411"))
+cluster_names <- read.csv("/ix1/ktorok/trh107/LS44_Feb24/overall_annotations.csv")
+cluster_names <- dplyr::filter(cluster_names, !is.na(cluster))
+new.cluster.ids <- cluster_names$celltype1
+names(new.cluster.ids) <- levels(LS44_Feb24_subset)
+new.cluster.ids
+LS44_Feb24_subset <- RenameIdents(LS44_Feb24_subset, new.cluster.ids)
+j$clustcelltype2 <- Idents(j)
+DimPlot(LS44_Feb24_subset, label = T)
+DimPlot(j)
+DimPlot(LS44_Feb24_subset)
+```
+```{r fig.height=13, fig.width=9}
+unique(Idents(LS44_Feb24_subset))
+unique(Idents(endothelial_Mar24))
+Idents(endothelial_Mar24)<- endothelial_Mar24@meta.data$
+capec<- subset(endothelial_Mar24, idents = "Arterial EC")
+subset()
+my.deg.art<- FindMarkers(endothelial_Mar24, 
+                            ident.1 = c("Arterial EC"), 
+                            ident.2 = NULL)
+
+read.csv()
+  EnhancedVolcano(my.deg.art,
+    lab = rownames(my.deg.art),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Arterial EC versus ALL',
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 5.0)
+```
+
+
+ Capillary EC            Post-capillary venules  Venous EC               Pre-venular Capillaries Pericytes/EC           
+[6] Lymphatic EC            Proliferating EC        Arterial EC 
+DEG endo LS v healthy per subcluster
+```{r fig.height=6, fig.width=5}
+endothelial_Mar24$celltype.health <- paste(endothelial_Mar24$celltype2,endothelial_Mar24$health, sep = "_")
+Idents(endothelial_Mar24) <- "celltype.health"
+unique(endothelial_Mar24$celltype.health)
+
+endo.de <- FindMarkers(endothelial_Mar24, ident.1 = "Capillary EC_LS", ident.2 = "Capillary EC_Healthy", verbose = FALSE)
+write.csv(endo.de,file = '/ix1/ktorok/trh107/LS44_Feb24/endothelialDEGs/CapillaryEC_lsvh.csv' )
+
+endo.de <- FindMarkers(endothelial_Mar24, ident.1 ="Post-capillary venules_LS", ident.2 = "Post-capillary venules_Healthy", verbose = FALSE)
+write.csv(endo.de,file = '/ix1/ktorok/trh107/LS44_Feb24/endothelialDEGs/postCapillaryvenules_lsvh.csv' )
+
+endo.de <- FindMarkers(endothelial_Mar24, ident.1 = "Venous EC_LS", ident.2 = "Venous EC_Healthy", verbose = FALSE)
+write.csv(endo.de,file = '/ix1/ktorok/trh107/LS44_Feb24/endothelialDEGs/venousEC_lsvh.csv' )
+
+endo.de <- FindMarkers(endothelial_Mar24, ident.1 = "Pre-venular Capillaries_LS", ident.2 = "Pre-venular Capillaries_Healthy", verbose = FALSE)
+write.csv(endo.de,file = '/ix1/ktorok/trh107/LS44_Feb24/endothelialDEGs/prevenCapillaryEC_lsvh.csv' )
+
+endo.de <- FindMarkers(endothelial_Mar24, ident.1 = "Pericytes/EC_LS", ident.2 = "Pericytes/EC_Healthy", verbose = FALSE)
+write.csv(endo.de,file = '/ix1/ktorok/trh107/LS44_Feb24/endothelialDEGs/PericytesEC_lsvh.csv' )
+
+endo.de <- FindMarkers(endothelial_Mar24, ident.1 = "Lymphatic EC_LS", ident.2 = "Lymphatic EC_Healthy", verbose = FALSE)
+write.csv(endo.de,file = '/ix1/ktorok/trh107/LS44_Feb24/endothelialDEGs/lymphEC_lsvh.csv' )
+
+endo.de <- FindMarkers(endothelial_Mar24, ident.1 = "Proliferating EC_LS", ident.2 = "Proliferating EC_Healthy", verbose = FALSE)
+write.csv(endo.de,file = '/ix1/ktorok/trh107/LS44_Feb24/endothelialDEGs/prolifEC_lsvh.csv' )
+
+endo.de <- FindMarkers(endothelial_Mar24, ident.1 = "Arterial EC_LS", ident.2 = "Arterial EC_Healthy", verbose = FALSE)
+write.csv(endo.de,file = '/ix1/ktorok/trh107/LS44_Feb24/endothelialDEGs/ArterialEC_lsvh.csv' )
+
+
+deg<-read.csv(file = '/ix1/ktorok/trh107/LS44_Feb24/endothelialDEGs/ArterialEC_lsvh.csv', )
+EnhancedVolcano(deg,
+    lab = deg$X,
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Arterial LS versus Healthy',
+    FCcutoff = 0.5, pCutoff = 1,
+    pointSize = 1.0,
+    labSize = 3.0)
+FeaturePlot(endothelial_Mar24, features = "JUN", split.by = "health")
+
+```
+
+```{r}
+VlnPlot(object = endothelial_Mar24, features = "PECAM1", split.by = 'health', pt.size = .1, group.by = "celltype2")
+Idents(endothelial_Mar24)<-endothelial_Mar24$celltype2
+DotPlot(endothelial_Mar24,features = c("CCL21","HEY1","FBLN5","SOD2","CLU","ACKR1","CD36","CA4","FABP4","PROX1","LYVE1","SOX17","PLAUR","IRF1","SELE","RGS5","SFN","DMKM","KLF5"))
+```
+
+
+
+
+CELLCHAT
+```{r}
+devtools::install_github("jinworks/CellChat")
+install.packages('NMF')
+library(NMF)
+library(CellChat)
+devtools::install_github("jokergoo/circlize")
+
+```
+
+```{r}
+unique(Idents(LS44_Feb24_subset))
+cellchat <- createCellChat(object = endothelial_Mar24, group.by = "celltype2", assay = "RNA")
+CellChatDB <- CellChatDB.human
+```
+```{r}
+# subset the expression data of signaling genes for saving computation cost
+cellchat <- subsetData(cellchat) # This step is necessary even if using the whole database
+future::plan("multisession", workers = 4) # do parallel
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+#> The number of highly variable ligand-receptor pairs used for signaling inference is 692
+
+execution.time = Sys.time() - ptm
+print(as.numeric(execution.time, units = "secs"))
+#> [1] 13.20763
+# project gene expression data onto PPI (Optional: when running it, USER should set `raw.use = FALSE` in the function `computeCommunProb()` in order to use the projected data)
+# cellchat <- projectData(cellchat, PPI.human)
+```
+ [1] Suprabasal Keratinocytes   Fibroblasts                Keratinocytes              Basal Keratinocytes        Granular Keratinocytes    
+ [6] Smooth Muscle Cells        Endothelial Cells          T Cells                    Mast Cells                 Monocytes/Macrophages     
+[11] Follicular Keratinocytes   Melanocytes/Neuronal Cells B Cells                    Eccrine Glands 
+
+CIRCOS VIZ
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
