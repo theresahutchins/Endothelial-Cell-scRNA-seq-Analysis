@@ -1,0 +1,71 @@
+---
+title: "cellchat "
+output: html_document
+date: "2024-04-05"
+---
+
+```{r}
+library(CellChat)
+library(patchwork)
+options(stringsAsFactors = FALSE)
+```
+
+```{r}
+cellchatAll <- createCellChat(object = torok.SCT, group.by = "clustcelltype")
+cellchatAll <- createCellChat(object = LS44_Feb24_subset, group.by = "celltype1")
+```
+
+```{r}
+cellchatAll<- addMeta(cellchatAll, meta = torok.SCT@meta.data)
+cellchatAll <- setIdent(cellchatAll, ident.use = "clustcelltype") # set "labels" as default cell identity
+levels(cellchatAll@idents) # show factor levels of the cell labels
+groupSize <- as.numeric(table(cellchatAll@idents)) # number of cells in each cell group
+groupSize
+```
+
+```{r}
+CellChatDB <- CellChatDB.human # use CellChatDB.mouse if running on mouse data
+showDatabaseCategory(CellChatDB)
+# Show the structure of the database
+dplyr::glimpse(CellChatDB$interaction)
+
+# use a subset of CellChatDB for cell-cell communication analysis
+CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling") # use Secreted Signaling
+# use all CellChatDB for cell-cell communication analysis
+CellChatDB.use <- CellChatDB # simply use the default CellChatDB
+
+# set the used database in the object
+cellchatAll@DB <- CellChatDB.use
+```
+
+```{r}
+# subset the expression data of signaling genes for saving computation cost
+cellchatAll <- subsetData(cellchatAll) # This step is necessary even if using the whole database
+library(future)
+plan("multiprocess", workers = cl) # do parallel
+cellchatAll <- identifyOverExpressedGenes(cellchatAll)
+cellchatAll <- identifyOverExpressedInteractions(cellchatAll)
+
+# project gene expression data onto PPI (Optional: when running it, USER should set `raw.use = FALSE` in the function `computeCommunProb()` in order to use the projected data)
+# cellchat <- projectData(cellchat, PPI.human)
+```
+```{r}
+cellchatAll <- computeCommunProb(cellchatAll)
+# Filter out the cell-cell communication if there are only few number of cells in certain cell groups
+cellchatAll <- filterCommunication(cellchatAll   , min.cells = 10)
+```
+
+```{r}
+cellchatAll <- computeCommunProbPathway(cellchatAll)
+```
+
+```{r}
+cellchatAll <- aggregateNet(cellchatAll)
+```
+
+```{r fig.height=7, fig.width=10}
+groupSize <- as.numeric(table(cellchatAll@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_circle(cellchatAll@net$count, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Number of interactions")
+netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength") 
+```
