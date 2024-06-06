@@ -1,0 +1,570 @@
+---
+title: "new_seurat"
+author: "Theresa Hutchins"
+date: "2023-10-04"
+output: html_document
+---
+package load
+```{r}
+library(Seurat)
+library(nichenetr)
+library(devtools)
+library(cellranger)
+library(dplyr)
+library(ggplot2)
+library(sctransform)
+library(cowplot)
+library(harmony)
+library(tibble)
+library(readxl)
+library(Libra)
+library(EnhancedVolcano)
+library(BiocManager)
+library(SeuratWrappers)
+library(parallel)
+library(SeuratDisk)
+library(SeuratData)
+library(monocle3)
+library(patchwork)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(tidyverse)
+library(dittoSeq)
+#install.packages("devtools"); devtools::install_github("tidyverse/ggplot2")
+#install.packages("SeuratObject", type = "source")
+#install_github("maehrlab/thymusatlastools")
+#help(package="Seurat")
+#rstudioapi::addTheme("https://raw.githubusercontent.com/jnolis/synthwave85/master/Synthwave85.rstheme", TRUE, TRUE, FALSE)
+```
+
+
+```{r fig.height= 8,fig.width=13}
+barbie_light <- "https://raw.githubusercontent.com/emhogg/barbie_r_studio_themes/main/Barbie_Light.rstheme"
+rstudioapi::addTheme(barbie_light, apply = TRUE)
+
+j <- LoadH5Seurat("/ix1/ktorok/giw5/LS_All/LS.all.H5Seurat")
+DimPlot(j, label = T, repel = 1, label.size = 4, split.by = "health")
+j@meta.data$seurat_clusters
+install.packages("SeuratObject", type = "source")
+unique(j@meta.data$library_id)
+```
+
+
+
+```{r fig.height=10, fig.height=20}
+
+j1 <- as.data.frame(table(j@meta.data$health,j@meta.data$celltype))
+j1
+myPalette <- brewer.pal(6, "Set2") 
+h <- subset(j1, j1$Var1 == "Healthy")
+ls<- subset(j1, j1$Var1=="LS")
+pie(h$Freq, labels = h$Var2 ) + title(main = "Healthy Celltype Proportions") 
+pie(ls$Freq, labels = ls$Var2) + title(main = "LS Celltype Proportions")
+write.csv(pt, file = "/ix1/ktorok/trh107/ls44_samplecounts.csv")
+ggplot(j1, aes(x = Var2, y = Freq, fill = Var1)) +
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.5) +
+  xlab("Sample") +
+  ylab("Proportion") +
+  scale_fill_manual(values = c( "#6495ED", "#DE3163","lightgreen"
+                            ,"#40E0D0","#FF7F50","#6495ED","#CCCCFF","lightpink","navy","#FB75D8","purple","#DFFF00","blue" ,"#FFBF00", "green", "#DE3163", "#9FE2BF","lightgreen", "green","#40E0D0","#6495ED","#CCCCFF","lightpink","#FB75D8","purple","blue","navy")) +
+  theme(legend.title = element_blank(),axis.text.x = element_text(size = 15,angle = 90))
+
+
+marker_genes <- c("KRT5", "KRT14","KRT1", "KRT10","DCN", "CFD", "COL1A1", "COL1A2","ECC1","ECC2", )
+
+mg <- c("KRT1", "KRT10","ACKR1", "PECAM1", "CLDN5", "PLVAP","DCN", "CFD", "COL1A1", "COL1A2","ACTA2", "TAGLN", "MYL9","CD79A", "MS4A1",
+ "KRT14","KRT5","APOC1", "CIDEA","S100B", "MPZ"," NRXN1", "PMP2", "PMP22")
+g <- c("KRT1","KRT10","DMKN","LGALS7B","HBB","HBA2","HBA1","CXCR4","CCL5","CD69","CD52","DCN","CFD","PTGDS","APOD","KRT14","KRT5","S100A2","KRT15",
+       "RGS5","RGS16","CCL19","CCL2","ACKR1","FABP4","SELE","CLDN5","KRT17","KRT6B","KRT6A","CALML5","ACTA2","TAGLN","TPM2","MYL9","KRT2","KRTDAP","SBSN","SLURP1","C1QA","CCL3","CXCL13","IL1B","G0S2","LYZ","HLA-DRA","DCD","SCGB2A2","MUCL1","DCT","MPZ","TYRP1","PMEL","TPSAB1","IGHG1")
+
+g <- c("KRT1","KRT10","DMKN","HBB","HBA2","HBA1","CXCR4","CD69","CD52","DCN","CFD","APOD","KRT14","KRT5","S100A2",
+       "RGS5","RGS16","CCL2","ACKR1","FABP4","CLDN5","KRT17","KRT6B","KRT6A","ACTA2","TAGLN","MYL9","KRT2","KRTDAP","SBSN","C1QA","CCL3","CD14", "IL1B","G0S2","LYZ","DCD","SCGB2A2","MUCL1","DCT","MPZ","TYRP1","TPSAB1","IGHG1","SOCS1")
+DotPlot(j, features = g) +
+  theme(legend.title = element_blank(),axis.text.x = element_text(size = 15,angle = 90))
+DoHeatmap(object = j, features = g, group.by = "celltype")
+dittoHeatmap(j, genes = g,annot.by = "celltype")
+install.packages("")
+a
+```
+smooth muscle: ACTA2,TAGLN, MYL9
+Endithelial Cells: ACKR1, PECAM1, CLDN5,PLVAP
+Basal Ker: KRT14, KRT15
+Neuronal Cells: "MPZ"," NRXN1", "PMP2", "PMP22" 
+
+```{r}
+load.Rdata("/ix1/ktorok/trh107/LS44_matrix/LS_44.RData")
+```
+
+
+data load
+```{r fig.width=11,fig.height=9}
+#Load data
+#cells.data <- Read10X("/ix1/ktorok/trh107/T_cell_issue/test1/outs/count/raw_feature_bc_matrix")
+cells.data <- Read10X("/ix1/ktorok/sequencing_data/sc_cellranger/LS_44_aggregate/outs/count/raw_feature_bc_matrix")
+#Set up metadata
+mdata <- read.csv(file.path("/ix1/ktorok/trh107/LS44_matrix/LS_44_aggregate_new.csv"), stringsAsFactors=F)
+
+unique(ls_all_44@meta.data$library_id)
+```
+
+
+seurat pipeline
+```{r}
+cellcodes <- as.data.frame(cells.data@Dimnames[[2]])
+colnames(cellcodes) <- "barcodes"
+rownames(cellcodes) <- cellcodes$barcodes
+cellcodes$libcodes <- as.factor(gsub(pattern=".+-", replacement="", cellcodes$barcodes))
+
+cellcodes$sex <- as.vector(mdata$sex[cellcodes$libcodes])
+cellcodes$library_id <- as.vector(mdata$sample_id[cellcodes$libcodes])
+cellcodes$ethnicity <- as.vector(mdata$ethnicity[cellcodes$libcodes])
+cellcodes$health <- as.vector(mdata$health[cellcodes$libcodes])
+#cellcodes <- cellcodes %>% dplyr::select(-c(barcodes, libcodes))
+
+#Create Seurat Object
+LS44_new <- CreateSeuratObject(counts=cells.data, meta.data=cellcodes)
+```
+
+add metadata for mt and ribo
+```{r}
+LS44_new[["percent.mt"]] <- PercentageFeatureSet(LS44_new, pattern = "^MT-")
+
+LS44_new[["percent.ribo"]] <- PercentageFeatureSet(LS44_new, pattern = "^RP[SL]")
+unique(LS44_new@meta.data$ethnicity)
+```
+
+
+
+```{r fig.width=10}
+LS44_new<- subset(LS44_new, subset = nFeature_RNA > 100 & nFeature_RNA < 350 & percent.mt < 40& percent.ribo < 60& nCount_RNA < 500)
+VlnPlot(LS44_new, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.ribo"), ncol = 4, pt.size = 0)
+
+VlnPlot(LS44_new, features = c("nFeature_RNA"),pt.size = 0, group.by = "library_id")
+VlnPlot(LS44_new, features = c("nCount_RNA"),pt.size = 0, group.by = "library_id")
+VlnPlot(LS44_new, features = c("percent.mt"),pt.size = 0, group.by = "library_id")
+VlnPlot(LS44_new, features = c("percent.ribo"),pt.size = 0, group.by = "library_id")
+VlnPlot(spl)
+```
+
+
+
+```{r}
+#tissue<- SetIdent(tissue, value = "library_id")
+
+FilterGenes <-
+  function (object, min.value=1, min.cells = 0, genes = NULL) {
+    genes.use <- rownames(object)
+    if (!is.null(genes)) {
+      genes.use <- intersect(genes.use, genes)
+      object@data <- GetAssayData(object)[genes.use, ]
+    } else if (min.cells > 0) {
+      num.cells <- Matrix::rowSums(GetAssayData(object) > min.value)
+      genes.use <- names(num.cells[which(num.cells >= min.cells)])
+      object = object[genes.use, ]
+    }
+    object <- LogSeuratCommand(object = object)
+    return(object)
+  }
+
+LS44_new <- FilterGenes(object = LS44_new, min.value = 0.5, min.cells = 100 )
+
+```
+
+
+
+
+```{r}
+LS44_new <- NormalizeData(LS44_new)
+
+LS44_new <- FindVariableFeatures(LS44_new, selection.method = "vst", nfeatures = 2000)
+
+LS44_new <- ScaleData(LS44_new, features = rownames(LS44_new))
+
+```
+
+
+
+assigns phase
+```{r}
+# Cell Cycle
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+fibro44 <- CellCycleScoring(fibro44, s.features = s.genes, g2m.features = g2m.genes)
+DimPlot(fibro44, group.by = "Phase")
+```
+
+
+```{r}
+# PCA
+tissue <- RunPCA(tissue, features = VariableFeatures(object = tissue))
+ElbowPlot(tissue)
+# Run UMAP
+tissue <- RunHarmony(tissue, c("library_id"),verbose = TRUE)
+tissue <- RunUMAP(tissue, reduction = "harmony", dims = 1:6, verbose = TRUE)
+
+DimPlot(tissue, split.by ="library_id" )
+FeaturePlot(tissue, features = "IL6")
+```
+
+
+```{r fig.width=12}
+# Find neighbors and clusters
+ElbowPlot(tissue, ndims = 25)
+tissue <- FindNeighbors(tissue, reduction="harmony", dims = 1:10, verbose = FALSE)
+tissue <- FindClusters(
+  object = tissue,
+  resolution = .2,
+  verbose = TRUE)
+
+tissue@meta.data$library_id<- factor(x = tissue@meta.data$library_id, levels = c("SC18", "SC33", "HJ867", "SC390", "SC411")) # change the order of the factor levels
+
+
+DimPlot(endothelial_cells, label = TRUE)
+```
+
+```{r}
+Idents(fibro44) <- "celltype"
+#Find Cluster DEGs
+Idents(tissue) <- "seurat_clusters"
+endo_Markers <- FindAllMarkers(endothelial_cells, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+endo_markers 
+write.csv(endo_markers, file = "/ix1/ktorok/trh107/LS44/endothelialcellmarkers.csv")
+```
+
+```{r fig.height=9, fig.width=12}
+FeaturePlot(tissue, features= "ACTA2")
+FeaturePlot(tissue, features = c("IGKC", "IGLC2", "TPSAB1"))
+FeaturePlot(tissue, features = c("LYZ", "HLADRA1", "CD68"))
+FeaturePlot(tissue, features = c("IL2RB"))
+
+FeaturePlot(tissue, features= "GZMB")
+FeaturePlot(tissue, features = c("KRT1", "KRT10"))
+FeaturePlot(tissue, features = c("KRT1", "KRT10"))
+Idents(H_v_SSc_obj_refined) <- H_v_SSc_obj_refined@meta.data$sample_id
+FeaturePlot(H_v_SSc_obj_refined, features = c("CD3D"), cells = H_v_SSc_obj_refined@meta.data$sample_id =="SC524")
+unique(H_v_SSc_obj_refined@meta.data$sample_id)
+FeaturePlot(tissue, features = c("CD2", "CD8", "CD4","CD3"),split.by ="library_id", )
+FeaturePlot(tissue, features = c("DES", "ACTG2", "MYLK", "ACTA2", "TAGLN"))
+
+
+DimPlot(tissue, split.by = "library_id")
+```
+
+
+```{r fig.width=15,fig.height=10}
+#Annotation t cells
+Idents(j) <- "seurat_clusters"
+#install.packages("patchwork",version ="1.2.0" )
+cluster_names <- read.csv("/ix1/ktorok/giw5/LS_All/LS_All_Annotation.csv")
+cluster_names <- dplyr::filter(cluster_names, !is.na(Cluster))
+new.cluster.ids <- cluster_names$Celltype2
+names(new.cluster.ids) <- levels(j)
+new.cluster.ids
+j<- RenameIdents(j, new.cluster.ids)
+j$Celltype2 <- Idents(j)
+DimPlot(j, label = T, label.size = 5, repel = .5)
+```
+
+```{r fig.width=10}
+#Annotation
+Idents(j) <- "seurat_clusters"
+
+cluster_names <- read.csv("/ix1/ktorok/giw5/LS_All/LS_All_Annotation.csv")
+cluster_names <- dplyr::filter(cluster_names, !is.na(Cluster))
+new.cluster.ids <- cluster_names$Celltype2
+names(new.cluster.ids) <- levels(j)
+new.cluster.ids
+j <- RenameIdents(j, new.cluster.ids)
+j$clustcelltype2 <- Idents(j)
+DimPlot(j, group.by = "clustcelltype2", label = T)
+DimPlot(j)
+```
+
+
+```{r fig.width=10}
+#Annotation
+Idents(tissue) <- "seurat_clusters"
+DimPlot(tissue)
+cluster_names <- read.csv("/ix1/ktorok/trh107/ls_long_annotations.csv")
+cluster_names <- dplyr::filter(cluster_names, !is.na(cluster))
+new.cluster.ids <- cluster_names$celltype
+names(new.cluster.ids) <- levels(tissue)
+new.cluster.ids
+tissue <- RenameIdents(tissue, new.cluster.ids)
+tissue$clustcelltype <- Idents(tissue)
+DimPlot(tissue, group.by = "clustcelltype", label = T)
+```
+
+
+```{r fig.height=7, fig.height=13}
+pt <- as.data.frame(table(ls44_tcell@meta.data$health,ls44_tcell@meta.data$clustcelltype))
+pt
+j1 <- as.data.frame(table(j@meta.data$health,j@meta.data$celltype))
+df1 <- filter(pt, pt$Freq > 0)
+df1
+j1
+write.csv(pt, file = "/ix1/ktorok/trh107/ls44_samplecounts.csv")
+ggplot(j1, aes(x = Var2, y = Freq, fill = Var1)) +
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.5) +
+  xlab("Sample") +
+  ylab("Proportion") +
+  scale_fill_manual(values = c( "#6495ED", "#DE3163","lightgreen"
+                            ,"#40E0D0","#FF7F50","#6495ED","#CCCCFF","lightpink","navy","#FB75D8","purple","#DFFF00","blue" ,"#FFBF00", "green", "#DE3163", "#9FE2BF","lightgreen", "green","#40E0D0","#6495ED","#CCCCFF","lightpink","#FB75D8","purple","blue","navy")) +
+  theme(legend.title = element_blank(),axis.text.x = element_text(size = 15,angle = 90))
+
+write.csv(pt, file= "/ix1/ktorok/trh107/LS44/samples44.csv")
+d<-DotPlot(endothelial_cells, features = c("ACKR1","CD36", "CA4", "FABP4","SEMA3G", "GJA4", "HEY1","FBLN5","PROX1","LYVE1","PGF", "CXCR4","PCLAF"))
+
+d+ theme(axis.text.x = element_text(angle = 90))
+```
+
+
+Levels: 0-IL6/SELE 1-PPP1R15A/CEBPD 2-CCL14/CCL23 3-RAMP2/ADIRF 4-CD36/BTNL9 5-IGFBP3/CXCL12 6-APOE/ACTA2 7-CCL21/EFEMP1 8-SEMA3G/NEBL
+```{r fig.height=13, fig.width=9}
+unique(endothelial_cells@meta.data$clustcelltype)
+my.deg.6 <- FindMarkers(endothelial_cells, 
+                            ident.1 = c("6-APOE/ACTA2"), 
+                            ident.2 = NULL)
+
+EnhancedVolcano(my.deg.6 , 
+                rownames(my.deg.6),
+                x ="avg_log2FC", 
+                y ="p_val_adj",
+                title = "Cluster 6")
+```
+
+```{r fig.height=13, fig.width=15}
+my.deg.0 <- FindMarkers(endothelial_cells, 
+                            ident.1 = c("0-IL6/SELE"), 
+                            ident.2 = NULL)
+
+EnhancedVolcano(my.deg.0 , 
+                rownames(my.deg.0),
+                x ="avg_log2FC", 
+                y ="p_val_adj",
+                title = "Cluster 0")
+
+  EnhancedVolcano(my.deg.0,
+    lab = rownames(my.deg.0),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Clust 0 versus ALL',
+    pCutoff = 10e-34,
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 5.0)
+```
+
+```{r fig.height=13, fig.width=9}
+my.deg.1 <- FindMarkers(endothelial_cells, 
+                            ident.1 = c("1-PPP1R15A/CEBPD"), 
+                            ident.2 = NULL)
+
+  EnhancedVolcano(my.deg.1,
+    lab = rownames(my.deg.1),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Clust 1 versus ALL',
+    pCutoff = 10e-34,
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 5.0)
+```
+
+```{r fig.height=13, fig.width=15}
+my.deg.3 <- FindMarkers(endothelial_cells, 
+                            ident.1 = c("3-RAMP2/ADIRF"), 
+                            ident.2 = NULL)
+
+EnhancedVolcano(my.deg.3 , 
+                rownames(my.deg.3),
+                x ="avg_log2FC", 
+                y ="p_val_adj",
+                title = "Cluster 3")
+
+  EnhancedVolcano(my.deg.3,
+    lab = rownames(my.deg.3),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Clust 3 versus ALL',
+    pCutoff = 10,
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 5.0)
+```
+
+```{r fig.height=13, fig.width=9}
+my.deg.4 <- FindMarkers(endothelial_cells, 
+                            ident.1 = c("4-CD36/BTNL9"), 
+                            ident.2 = NULL)
+
+EnhancedVolcano(my.deg.4 , 
+                rownames(my.deg.4),
+                x ="avg_log2FC", 
+                y ="p_val_adj",
+                title = "Cluster 4")
+
+  EnhancedVolcano(my.deg.4,
+    lab = rownames(my.deg.4),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Clust 4 versus ALL',
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 5.0)
+```
+
+```{r fig.height=13, fig.width=9}
+my.deg.5 <- FindMarkers(endothelial_cells, 
+                            ident.1 = c("5-IGFBP3/CXCL12"), 
+                            ident.2 = NULL)
+
+
+
+  EnhancedVolcano(my.deg.5,
+    lab = rownames(my.deg.5),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Clust 5 versus ALL',
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 5.0)
+```
+
+```{r fig.height=13, fig.width=9}
+my.deg.6 <- FindMarkers(endothelial_cells, 
+                            ident.1 = c("6-APOE/ACTA2"), 
+                            ident.2 = NULL)
+
+
+
+  EnhancedVolcano(my.deg.6,
+    lab = rownames(my.deg.6),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Clust 6 versus ALL',
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 5.0)
+  
+```
+
+```{r fig.height=13, fig.width=9} 
+
+my.deg.7 <- FindMarkers(endothelial_cells, 
+                            ident.1 = c("7-CCL21/EFEMP1"), 
+                            ident.2 = NULL)
+
+
+
+  EnhancedVolcano(my.deg.7,
+    lab = rownames(my.deg.7),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Clust 7 versus ALL',
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 5.0)
+  
+```
+
+7-CCL21/EFEMP1 8-SEMA3G/NEBL
+```{r fig.height=13, fig.width=9} 
+my.deg.8 <- FindMarkers(endothelial_cells, 
+                            ident.1 = c("8-SEMA3G/NEBL"), 
+                            ident.2 = NULL)
+
+
+
+  EnhancedVolcano(my.deg.8,
+    lab = rownames(my.deg.8),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Clust 8 versus ALL',
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 5.0)
+  
+```
+
+```{r fig.height=13, fig.width=9}
+
+my.deg.2 <- FindMarkers(endothelial_cells, 
+                            ident.1 = c("2-CCL14/CCL23"), 
+                            ident.2 = NULL)
+
+EnhancedVolcano(my.deg.2 , 
+                rownames(my.deg.2),
+                x ="avg_log2FC", 
+                y ="p_val_adj",
+                title = "Cluster 2")
+
+  EnhancedVolcano(my.deg.2,
+    lab = rownames(my.deg.2),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'Clust 2 versus ALL',
+    pCutoff = 10e-34,
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 5.0)
+  
+```
+
+```{r fig.height=6, fig.width=10}
+
+DotPlot(ls_all_44, features = c("ACTA2","PDGFRB","IGKC","PCLAF","TNFAIP3","SERPINE","SERPINE1","SELE","RGS5"))
+FeaturePlot(ls_all_44, features = c("ACTA2","PDGFRB","IGKC","PCLAF"))
+FeaturePlot(ls_all_44, features = "ST8SIA4")
+FeaturePlot(ls_all_44, features = c("TNFAIP3","SERPINE","SERPINE1","SELE","RGS5"))
+DimPlot(ls_all_44, label.size = 6, label = T, repel = T)
+
+
+DotPlot(endothelial_cells, features = c("ACTA2","PDGFRB","IGKC","PCLAF","TNFAIP3","SERPINE","SERPINE1","SELE","RGS5"))
+
+FeaturePlot(endothelial_cells, features = c("ACTA2","PDGFRB","IGKC","PCLAF"))
+
+FeaturePlot(endothelial_cells, features = c("TNFAIP3","SERPINE","SERPINE1","SELE","RGS5"))
+
+DimPlot(endothelial_cells, label.size = 6, label = T, repel = T)
+```
+
+
+```{r fig.height=10, fig.width=10}
+
+FeaturePlot(endothelial_cells, features = c("CD36", "CA4","FABP4","PROX1", "LYVE1","SEMA3G", "GJA4", "HEY1","ACKR1"))
+
+FeaturePlot(ls_all_44, features = c("CD36", "CA4","FABP4","PROX1", "LYVE1","SEMA3G", "GJA4", "HEY1","ACKR1"))
+
+FeaturePlot(ls_all_44, features = c("CD13","APN","CD29","CD31","PECAM1"))
+
+FeaturePlot(ls_all_44, features = c("CD34","CD36","CD39","CD44","CD47"))
+
+FeaturePlot(ls_all_44, features = c("CD54","ICAM-1","CD61","CD62E","CD80","CD86","CD93"))
+
+FeaturePlot(ls_all_44, features = c("CXCR4"))
+
+FeaturePlot(ls_all_44, features = c("CD105","CD73","CD90", "CD45","CD34","CD14","CD11B","CD79A","CD19","HLA-DR"))
+
+DotPlot(ls_all_44,features=c("TYK2","STAT1","STAT2","STAT3","STAT4","STAT5A","NOTCH4","RGN","CDC42BPA"), split.by = "health")+ theme(axis.text.x = element_text(angle = 90))
+FeaturePlot(ls_all_44, features=c("TYK2","STAT1","STAT2","STAT3","STAT4"), split.by = "health")
+FeaturePlot(endothelial_cells, features = c("CD105","CD73","CD90", "CD45","CD34","CD14","CD11B","CD79A","CD19","HLA-DR"))
+FeaturePlot(fibro44, features="TYK2", split.by = "health")
+FeaturePlot(endothelial_cells, features = "STAT4", split.by = "health")
+DimPlot(ls44_tcell, label = T)
+how to o```
+
+ACT cell marker
+```{r}
+head(my.deg.0, n=10)
+head(my.deg.1, n=10)
+head(my.deg.2, n=10)
+head(my.deg.3, n=10)
+head(my.deg.4, n=10)
+head(my.deg.5, n=10)
+head(my.deg.6, n=10)
+head(my.deg.7, n=10)
+head(my.deg.8, n=10)
+```
